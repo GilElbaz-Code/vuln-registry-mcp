@@ -12,8 +12,9 @@ Requires Node.js 20+.
 
 ```bash
 npm install
-npm run build   # compiles src/ -> dist/
-npm test        # runs the vitest suite
+npm run build      # compiles src/ -> dist/
+npm test           # runs the vitest suite
+npm run typecheck  # strict tsc over src/, tests/, and agent/ (no emit)
 ```
 
 Run the server directly (over stdio) for local testing:
@@ -54,7 +55,7 @@ sorted by CVSS score (desc), then publish date (desc).
 | `vendor_name`      | `string`                                          | case-insensitive substring                |
 | `keyword`          | `string`                                          | case-insensitive substring on title/CVE id|
 | `min_cvss`/`max_cvss` | `number` (0–10)                                | inclusive range                           |
-| `published_after`/`published_before` | `string` (`YYYY-MM-DD`)          | inclusive range                           |
+| `published_after`/`published_before` | `string` (`YYYY-MM-DD`)          | inclusive; must be zero-padded (validated)|
 | `limit`            | `number` (default 50, max 200)                    | applied after sorting                     |
 
 ```json
@@ -143,6 +144,10 @@ Registry-wide headline numbers, with an optional grouped breakdown.
 |------------|------------------------------------|------------------------------------------|
 | `group_by` | `"severity"\|"status"\|"vendor"`  | optional; adds a `breakdown` field       |
 
+The vendor breakdown covers every record: vulnerabilities whose `vendor_id`
+doesn't resolve to a known vendor appear under their own bucket with
+`vendor_name: null`, so the counts always sum to `total_vulnerabilities`.
+
 ```json
 { "group_by": "vendor" }
 ```
@@ -217,9 +222,12 @@ already embedded in its response).
   format version requires zero parser changes.
 - **Never crash on bad data.** An unknown `# VERSION` logs a warning and
   keeps parsing (the format may evolve). A malformed row (wrong field count,
-  non-numeric `cvss_score`/`founded`) is skipped with a line-numbered stderr
-  warning, not a thrown exception — one bad row in a growing legacy file
-  shouldn't take the whole registry down.
+  non-numeric `cvss_score`/`founded`, a stray row above the `# FORMAT`
+  header) is skipped with a line-numbered stderr warning, not a thrown
+  exception — one bad row in a growing legacy file shouldn't take the whole
+  registry down. Duplicate ids keep the first occurrence and warn; a missing
+  `vendor_id` is logged and counted as an orphan like any other dangling
+  reference.
 - **`affected_versions` stays free text.** It's never parsed into semver;
   the data doesn't follow one consistent version-range grammar (`"2.0-2.14.1"`,
   `"Windows 7-2008 R2"`, `"SSLv3"`), and getting that wrong silently would be

@@ -79,6 +79,58 @@ describe("VulnRepository — vendor join and orphan handling", () => {
   });
 });
 
+describe("VulnRepository — duplicate ids and missing vendor_id", () => {
+  it("keeps the first occurrence of a duplicate vulnerability id and skips the rest", () => {
+    const dupVulns = `# FORMAT: type|id|cve_id|title|vendor_id|severity|cvss_score|affected_versions|status|published
+# VERSION: 1.0
+
+VULN|CVE001|CVE-2021-44228|Log4Shell|V2|critical|10.0|2.0-2.14.1|patched|2021-12-10
+VULN|CVE001|CVE-2099-0001|Impostor|V1|low|1.0|n/a|open|2099-01-01
+`;
+    const repo = buildRepo(VENDORS, dupVulns);
+    expect(repo.getVulnById("CVE001")?.title).toBe("Log4Shell");
+    expect(repo.getAllVulnerabilities()).toHaveLength(1);
+  });
+
+  it("keeps the first occurrence of a duplicate vendor id and skips the rest", () => {
+    const dupVendors = `# FORMAT: type|id|name|category|hq|founded
+# VERSION: 1.0
+
+VENDOR|V1|Microsoft|Software|Redmond, WA|1975
+VENDOR|V1|Impostor Corp|Software|Nowhere|2000
+`;
+    const repo = buildRepo(dupVendors, VULNS);
+    expect(repo.getVendorById("V1")?.name).toBe("Microsoft");
+    expect(repo.getAllVendors()).toHaveLength(1);
+  });
+
+  it("counts an empty vendor_id as an orphan and keeps the record", () => {
+    const noVendorVulns = `# FORMAT: type|id|cve_id|title|vendor_id|severity|cvss_score|affected_versions|status|published
+# VERSION: 1.0
+
+VULN|CVE001|CVE-2020-0001|Vendorless||high|5.0|n/a|open|2020-01-01
+`;
+    const repo = buildRepo(VENDORS, noVendorVulns);
+    const vuln = repo.getVulnById("CVE001");
+    expect(vuln).toBeDefined();
+    expect(repo.enrich(vuln!).vendor).toBeNull();
+    expect(repo.getOrphanCount()).toBe(1);
+  });
+});
+
+describe("VulnRepository — vendor breakdown", () => {
+  it("includes known vendors (even zero-count) plus a null-named bucket per orphan vendor_id, summing to the total", () => {
+    const repo = buildRepo(VENDORS, VULNS);
+    const breakdown = repo.vendorBreakdown();
+
+    const total = breakdown.reduce((sum, b) => sum + b.count, 0);
+    expect(total).toBe(repo.getAllVulnerabilities().length);
+
+    const orphanBucket = breakdown.find((b) => b.vendor_id === "V9");
+    expect(orphanBucket).toEqual({ vendor_id: "V9", vendor_name: null, count: 1 });
+  });
+});
+
 describe("VulnRepository — coercion and free-text fields", () => {
   it("coerces cvss_score and founded to numbers", () => {
     const repo = buildRepo(VENDORS, VULNS);

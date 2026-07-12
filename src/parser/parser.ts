@@ -43,9 +43,11 @@ export function parseDbFile(text: string, sourceName: string): ParsedFile {
     }
 
     if (columns === null) {
-      throw new ParseError(
-        `${sourceName}: missing "${FORMAT_PREFIX}" metadata line before first data row (line ${lineNumber})`,
-      );
+      warnings.push({
+        line: lineNumber,
+        message: `${sourceName}:${lineNumber}: skipped data row before "${FORMAT_PREFIX}" header`,
+      });
+      continue;
     }
 
     const fields = line.split("|").map((f) => f.trim());

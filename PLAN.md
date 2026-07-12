@@ -48,8 +48,7 @@ vuln-registry-mcp/
 ├── tests/
 │   ├── parser.test.ts
 │   ├── repository.test.ts
-│   ├── tools.test.ts
-│   └── fixtures/               # tiny .db samples: malformed row, orphan vendor_id, bad VERSION
+│   └── tools.test.ts           # fixtures are inline .db string samples in each test file
 ├── package.json                # scripts: test, build, dev, agent
 ├── tsconfig.json               # strict, NodeNext, target ES2022, outDir dist
 ├── vitest.config.ts
@@ -250,7 +249,7 @@ figures: `total_vulnerabilities`, `by_severity`, `by_status`, `open_critical_cou
 - `search_vulnerabilities` combinable filters via the registered handler; output shape/sort.
 - `list_vendors` counts & breakdown; `get_vendor_profile` by id and by name incl. not-found.
 
-Fixtures: a tiny in-memory dataset plus `.db` files exercising a malformed row, an orphan
+Fixtures: tiny inline `.db` string samples exercising a malformed row, an orphan
 `vendor_id`, and an unsupported VERSION. Tools tested by calling handlers against a repo built
 from fixtures (no live stdio needed).
 

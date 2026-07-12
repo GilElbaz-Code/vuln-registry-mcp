@@ -50,6 +50,12 @@ describe("Zod input validation", () => {
     expect(schema.safeParse({ identifier: "CVE001" }).success).toBe(true);
   });
 
+  it("rejects a non-zero-padded date for search_vulnerabilities", () => {
+    const schema = z.object(searchVulnerabilitiesShape);
+    expect(schema.safeParse({ published_after: "2024-3-1" }).success).toBe(false);
+    expect(schema.safeParse({ published_after: "2024-03-01" }).success).toBe(true);
+  });
+
   it("applies the default limit for search_vulnerabilities when omitted", () => {
     const schema = z.object(searchVulnerabilitiesShape);
     const result = schema.parse({});
@@ -242,5 +248,28 @@ describe("get_statistics tool", () => {
     };
     const total = result.breakdown.reduce((sum, b) => sum + b.count, 0);
     expect(total).toBe(20);
+  });
+
+  it("includes orphaned vendor_ids in the vendor breakdown so counts sum to the total", () => {
+    const vendors = `# FORMAT: type|id|name|category|hq|founded
+# VERSION: 1.0
+
+VENDOR|V1|Microsoft|Software|Redmond, WA|1975
+`;
+    const vulns = `# FORMAT: type|id|cve_id|title|vendor_id|severity|cvss_score|affected_versions|status|published
+# VERSION: 1.0
+
+VULN|CVE001|CVE-2021-44228|Log4Shell|V1|critical|10.0|2.0-2.14.1|patched|2021-12-10
+VULN|CVE002|CVE-2023-9999|Orphan Vuln|V9|high|5.0|n/a|open|2023-01-01
+`;
+    const orphanRepo = VulnRepository.fromParsed(parseDbFile(vendors, "vendors.db"), parseDbFile(vulns, "vulnerabilities.db"));
+
+    const result = textOf(getStatistics(orphanRepo, { group_by: "vendor" })) as {
+      total_vulnerabilities: number;
+      breakdown: Array<{ vendor_id: string; vendor_name: string | null; count: number }>;
+    };
+    const total = result.breakdown.reduce((sum, b) => sum + b.count, 0);
+    expect(total).toBe(result.total_vulnerabilities);
+    expect(result.breakdown).toContainEqual({ vendor_id: "V9", vendor_name: null, count: 1 });
   });
 });

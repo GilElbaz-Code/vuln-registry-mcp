@@ -2,6 +2,10 @@ import { z } from "zod";
 import type { VulnRepository } from "../repository/repository.js";
 import { jsonResult } from "./json-result.js";
 
+// Publish dates are compared lexicographically, which is only correct for
+// zero-padded ISO dates — reject anything else at the schema boundary.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 export const searchVulnerabilitiesShape = {
   severity: z
     .array(z.enum(["critical", "high", "medium", "low"]))
@@ -13,8 +17,16 @@ export const searchVulnerabilitiesShape = {
   keyword: z.string().optional().describe("Case-insensitive substring match against the title or CVE id"),
   min_cvss: z.number().min(0).max(10).optional().describe("Minimum CVSS score, inclusive"),
   max_cvss: z.number().min(0).max(10).optional().describe("Maximum CVSS score, inclusive"),
-  published_after: z.string().optional().describe("Only include vulnerabilities published on/after this date (YYYY-MM-DD)"),
-  published_before: z.string().optional().describe("Only include vulnerabilities published on/before this date (YYYY-MM-DD)"),
+  published_after: z
+    .string()
+    .regex(ISO_DATE, "must be a zero-padded YYYY-MM-DD date")
+    .optional()
+    .describe("Only include vulnerabilities published on/after this date (YYYY-MM-DD)"),
+  published_before: z
+    .string()
+    .regex(ISO_DATE, "must be a zero-padded YYYY-MM-DD date")
+    .optional()
+    .describe("Only include vulnerabilities published on/before this date (YYYY-MM-DD)"),
   limit: z.number().int().positive().max(200).default(50).describe("Maximum number of results to return"),
 };
 

@@ -9,6 +9,7 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.check.json",
     "test:watch": "vitest",
     "agent": "tsx --env-file-if-exists=.env agent/cli.ts"
   },

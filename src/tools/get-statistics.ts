@@ -25,9 +25,7 @@ export function getStatistics(repo: VulnRepository, input: GetStatisticsInput) {
   } else if (input.group_by === "status") {
     breakdown = stats.by_status;
   } else {
-    breakdown = repo
-      .listVendors("vuln_count")
-      .map((v) => ({ vendor_id: v.id, vendor_name: v.name, count: v.vuln_count }));
+    breakdown = repo.vendorBreakdown();
   }
 
   return jsonResult({ ...stats, group_by: input.group_by, breakdown });

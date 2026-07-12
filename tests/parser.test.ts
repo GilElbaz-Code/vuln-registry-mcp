@@ -91,6 +91,19 @@ R2|Second
     ]);
   });
 
+  it("skips data rows that appear before the FORMAT header, with a line-numbered warning", () => {
+    const sample = `STRAY|row|above|header
+# FORMAT: id|name
+# VERSION: 1.0
+R1|Good
+`;
+    const result = parseDbFile(sample, "stray.db");
+
+    expect(result.rows).toEqual([{ id: "R1", name: "Good" }]);
+    const warning = result.warnings.find((w) => /before/.test(w.message));
+    expect(warning?.line).toBe(1);
+  });
+
   it("throws a ParseError when the FORMAT metadata line is missing", () => {
     const sample = `# VERSION: 1.0
 

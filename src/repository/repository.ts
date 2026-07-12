@@ -4,6 +4,7 @@ import type {
   EnrichedVulnerability,
   SeverityBreakdown,
   Statistics,
+  StatisticsByVendor,
   Vendor,
   VendorProfile,
   VendorWithCounts,
@@ -75,6 +76,12 @@ export class VulnRepository {
         hq: row["hq"] ?? "",
         founded,
       };
+      if (repo.vendorsById.has(vendor.id)) {
+        logger.warn(
+          `${vendorsFile.sourceName}:${line}: skipped duplicate vendor id ${vendor.id} — keeping the first occurrence`,
+        );
+        return;
+      }
       repo.vendorsById.set(vendor.id, vendor);
     });
 
@@ -95,10 +102,19 @@ export class VulnRepository {
         return;
       }
 
-      const vendorId = (row["vendor_id"] ?? "").toUpperCase();
-      if (vendorId && !repo.vendorsById.has(vendorId)) {
+      if (repo.vulnsById.has(rawId.toUpperCase())) {
         logger.warn(
-          `${vulnerabilitiesFile.sourceName}:${line}: orphan vendor_id "${vendorId}" on ${rawId} — keeping record`,
+          `${vulnerabilitiesFile.sourceName}:${line}: skipped duplicate vulnerability id ${rawId.toUpperCase()} — keeping the first occurrence`,
+        );
+        return;
+      }
+
+      const vendorId = (row["vendor_id"] ?? "").toUpperCase();
+      if (!repo.vendorsById.has(vendorId)) {
+        logger.warn(
+          vendorId
+            ? `${vulnerabilitiesFile.sourceName}:${line}: orphan vendor_id "${vendorId}" on ${rawId} — keeping record`
+            : `${vulnerabilitiesFile.sourceName}:${line}: missing vendor_id on ${rawId} — keeping record`,
         );
         repo.orphanCount++;
       }
@@ -177,11 +193,17 @@ export class VulnRepository {
     const vendorName = query.vendor_name?.toLowerCase();
     const vendorId = query.vendor_id?.toUpperCase();
 
-    const results = this.allVulnsList.map((v) => this.enrich(v)).filter((v) => {
+    // Start from the vendor index when the query pins a vendor; filter before
+    // enriching so non-matching rows never allocate an enriched copy.
+    const pool = vendorId !== undefined ? this.vulnsByVendorId.get(vendorId) ?? [] : this.allVulnsList;
+
+    const results = pool.filter((v) => {
       if (severitySet && !severitySet.has(v.severity.toLowerCase())) return false;
       if (query.status && v.status.toLowerCase() !== query.status.toLowerCase()) return false;
-      if (vendorId && v.vendor_id !== vendorId) return false;
-      if (vendorName && !(v.vendor?.name.toLowerCase().includes(vendorName) ?? false)) return false;
+      if (vendorName) {
+        const vendor = this.vendorsById.get(v.vendor_id);
+        if (!vendor || !vendor.name.toLowerCase().includes(vendorName)) return false;
+      }
       if (keyword) {
         const haystack = `${v.title} ${v.cve_id}`.toLowerCase();
         if (!haystack.includes(keyword)) return false;
@@ -191,7 +213,7 @@ export class VulnRepository {
       if (query.published_after && v.published < query.published_after) return false;
       if (query.published_before && v.published > query.published_before) return false;
       return true;
-    });
+    }).map((v) => this.enrich(v));
 
     results.sort((a, b) => {
       if (b.cvss_score !== a.cvss_score) return b.cvss_score - a.cvss_score;
@@ -219,6 +241,26 @@ export class VulnRepository {
       list.sort((a, b) => b.vuln_count - a.vuln_count || a.name.localeCompare(b.name));
     }
     return list;
+  }
+
+  /**
+   * Per-vendor vulnerability counts covering every record: known vendors
+   * (including zero-count ones) plus a `vendor_name: null` bucket for each
+   * orphaned/missing vendor_id, so the counts always sum to the total.
+   */
+  vendorBreakdown(): StatisticsByVendor[] {
+    const breakdown: StatisticsByVendor[] = this.getAllVendors().map((vendor) => ({
+      vendor_id: vendor.id,
+      vendor_name: vendor.name,
+      count: (this.vulnsByVendorId.get(vendor.id) ?? []).length,
+    }));
+    for (const [vendorId, vulns] of this.vulnsByVendorId) {
+      if (!this.vendorsById.has(vendorId)) {
+        breakdown.push({ vendor_id: vendorId, vendor_name: null, count: vulns.length });
+      }
+    }
+    breakdown.sort((a, b) => b.count - a.count || a.vendor_id.localeCompare(b.vendor_id));
+    return breakdown;
   }
 
   getVendorProfile(vendorId: string): VendorProfile | null {
