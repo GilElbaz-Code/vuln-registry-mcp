@@ -224,7 +224,11 @@ export class VulnRepository {
   getVendorProfile(vendorId: string): VendorProfile | null {
     const vendor = this.getVendorById(vendorId);
     if (!vendor) return null;
+    return this.buildVendorProfile(vendor);
+  }
 
+  /** Builds a profile for an already-resolved Vendor — always succeeds, since the vendor is known to exist. */
+  buildVendorProfile(vendor: Vendor): VendorProfile {
     const vulns = (this.vulnsByVendorId.get(vendor.id) ?? []).map((v) => this.enrich(v));
     const bySeverity = emptySeverityBreakdown();
     let open = 0;
