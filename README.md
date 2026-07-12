@@ -14,8 +14,13 @@ Requires Node.js 20+.
 npm install
 npm run build      # compiles src/ -> dist/
 npm test           # runs the vitest suite
-npm run typecheck  # strict tsc over src/, tests/, and agent/ (no emit)
+npm run typecheck  # strict tsc over src/, tests/, agent/, and scripts/ (no emit)
+npm run bench      # synthetic 100k-row load/query benchmark
 ```
+
+CI (GitHub Actions) runs typecheck, build, and the test suite on Node 20
+and 22 on every push/PR, plus a guard that fails the build if anything in
+`src/` writes to stdout.
 
 Run the server directly (over stdio) for local testing:
 
@@ -33,6 +38,12 @@ On startup it logs a one-line summary (vendor/vulnerability counts, orphaned
 `vendor_id` references) plus any parse warnings — all to **stderr**. Nothing
 but MCP JSON-RPC ever goes to stdout, so the server is safe to pipe directly
 into any stdio-based MCP client.
+
+The server also **hot-reloads** the registry when either data file changes
+on disk (debounced; disable with `VULN_WATCH=0`). A reload that fails —
+e.g. a corrupt file caught mid-write — logs the error and keeps serving the
+last-good data, so a bad write never takes the server down. `SIGINT`/`SIGTERM`
+trigger a graceful shutdown.
 
 ## Tools
 
@@ -56,7 +67,11 @@ sorted by CVSS score (desc), then publish date (desc).
 | `keyword`          | `string`                                          | case-insensitive substring on title/CVE id|
 | `min_cvss`/`max_cvss` | `number` (0–10)                                | inclusive range                           |
 | `published_after`/`published_before` | `string` (`YYYY-MM-DD`)          | inclusive; must be zero-padded (validated)|
-| `limit`            | `number` (default 50, max 200)                    | applied after sorting                     |
+| `limit`            | `number` (default 50, max 200)                    | page size, applied after sorting          |
+| `offset`           | `number` (default 0)                              | matched results to skip (pagination)      |
+
+Responses report `total_matched`, the page `offset`, and `has_more`, so a
+client can page through result sets larger than one response.
 
 ```json
 { "severity": ["critical"], "status": "open" }
@@ -65,6 +80,8 @@ sorted by CVSS score (desc), then publish date (desc).
 {
   "count": 2,
   "total_matched": 2,
+  "offset": 0,
+  "has_more": false,
   "results": [
     { "id": "CVE020", "cve_id": "CVE-2024-21762", "title": "Fortinet SSL VPN OOB", "vendor_id": "V4",
       "severity": "critical", "cvss_score": 9.6, "status": "open", "vendor": { "name": "Google", "...": "..." }, "...": "..." },
@@ -212,6 +229,37 @@ chain tool calls (e.g. "What is the CVSS score of Log4Shell, and who is the
 vendor?" → `get_vulnerability` → answer synthesized from the vendor join
 already embedded in its response).
 
+## Scalability
+
+The assignment says the database is "expected to grow"; the design assumes
+thousands-to-hundreds-of-thousands of rows and every claim below is measured,
+not estimated — `npm run bench` builds a synthetic **1,000-vendor /
+100,000-vulnerability** dataset (5,000× the sample) and times the real code
+paths:
+
+| operation (100k rows)                              | time     |
+|----------------------------------------------------|----------|
+| parse both files + build indexes + load-time sort  | ~530 ms (startup, once) |
+| point lookup by id / CVE id / title (Map)          | ~0.0004 ms each (10k in 4.3 ms) |
+| search seeded by `vendor_id` (index)               | ~0.1 ms  |
+| worst-case full-scan search (severity + status)    | ~86 ms   |
+| `get_statistics` / `list_vendors`                  | ~87 / 29 ms first call, ~0 ms cached |
+| resident heap after load                           | ~91 MB   |
+
+The properties that make this hold as the data grows:
+
+- **Immutable-after-load dataset → precompute, don't recompute.** Rows are
+  sorted into the canonical order (CVSS desc, published desc) once at load;
+  queries return pre-ordered slices instead of sorting per call. Registry-wide
+  statistics and vendor counts are computed on first use and cached — a hot
+  reload builds a fresh repository, so caches can never go stale.
+- **Maps for every point lookup** (id, CVE id, normalized title, vendor_id);
+  only free-text search scans, and a vendor-scoped search starts from the
+  vendor index rather than the full list.
+- **Pagination** (`limit`/`offset` + `has_more`) keeps individual MCP
+  responses bounded no matter how large the registry gets — important because
+  the consumer is an LLM with a finite context window.
+
 ## Design decisions
 
 - **Schema-agnostic parser.** The parser (`src/parser/`) knows nothing about
@@ -263,11 +311,12 @@ already embedded in its response).
 - Fuzzy vendor/title matching beyond substring + token-overlap (e.g. proper
   edit-distance ranking) once the dataset is large enough that substring
   matching starts returning too many candidates.
-- Cursor-based pagination for `search_vulnerabilities` instead of a flat
-  `limit`, once "thousands of records" stops being small enough to sort
-  in memory on every call.
-- A file-watcher to reload the in-memory registry when the `.db` files
-  change on disk, instead of requiring a server restart.
+- An HTTP (streamable) transport with authentication and an audit log, so
+  the server could be deployed once as a shared internal service instead of
+  per-analyst over stdio — vulnerability-data access is exactly the kind of
+  thing a security org wants centrally logged.
+- Structured (JSON) logging and metrics/health endpoints for real
+  observability, beyond the current timestamped stderr lines.
 - MCP resources/prompts (not just tools) — e.g. a prompt template for
   "triage this vendor's open criticals" — to give clients richer starting
   points than raw tool calls.

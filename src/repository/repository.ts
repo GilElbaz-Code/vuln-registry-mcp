@@ -29,6 +29,11 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** The canonical result ordering: CVSS score descending, then publish date descending. */
+function byCvssThenPublishedDesc(a: Vulnerability, b: Vulnerability): number {
+  return b.cvss_score - a.cvss_score || b.published.localeCompare(a.published);
+}
+
 /**
  * Holds the parsed registry in memory and answers queries via prebuilt Maps
  * (id, cve_id, title, vendor_id) rather than repeated array scans. All
@@ -43,6 +48,9 @@ export class VulnRepository {
   private readonly vulnsByVendorId = new Map<string, Vulnerability[]>();
   private readonly allVulnsList: Vulnerability[] = [];
   private orphanCount = 0;
+  // The dataset is immutable after load, so derived aggregates are computed once and cached.
+  private cachedStatistics: Statistics | null = null;
+  private cachedVendorCounts: VendorWithCounts[] | null = null;
 
   private constructor() {}
 
@@ -142,6 +150,11 @@ export class VulnRepository {
       repo.allVulnsList.push(vuln);
     });
 
+    // Sort once at load into the canonical order; search() and profiles then
+    // return pre-ordered slices instead of re-sorting on every query.
+    repo.allVulnsList.sort(byCvssThenPublishedDesc);
+    for (const list of repo.vulnsByVendorId.values()) list.sort(byCvssThenPublishedDesc);
+
     return repo;
   }
 
@@ -215,25 +228,24 @@ export class VulnRepository {
       return true;
     }).map((v) => this.enrich(v));
 
-    results.sort((a, b) => {
-      if (b.cvss_score !== a.cvss_score) return b.cvss_score - a.cvss_score;
-      return b.published.localeCompare(a.published);
-    });
-
+    // Already in canonical order: the source lists are sorted once at load.
     return results;
   }
 
   listVendors(sortBy: "vuln_count" | "name" = "vuln_count"): VendorWithCounts[] {
-    const list: VendorWithCounts[] = this.getAllVendors().map((vendor) => {
-      const vulns = this.vulnsByVendorId.get(vendor.id) ?? [];
-      const breakdown = emptySeverityBreakdown();
-      let openCount = 0;
-      for (const v of vulns) {
-        addToBreakdown(breakdown, v.severity);
-        if (v.status.toLowerCase() === "open") openCount++;
-      }
-      return { ...vendor, vuln_count: vulns.length, open_count: openCount, severity_breakdown: breakdown };
-    });
+    if (this.cachedVendorCounts === null) {
+      this.cachedVendorCounts = this.getAllVendors().map((vendor) => {
+        const vulns = this.vulnsByVendorId.get(vendor.id) ?? [];
+        const breakdown = emptySeverityBreakdown();
+        let openCount = 0;
+        for (const v of vulns) {
+          addToBreakdown(breakdown, v.severity);
+          if (v.status.toLowerCase() === "open") openCount++;
+        }
+        return { ...vendor, vuln_count: vulns.length, open_count: openCount, severity_breakdown: breakdown };
+      });
+    }
+    const list = [...this.cachedVendorCounts];
 
     if (sortBy === "name") {
       list.sort((a, b) => a.name.localeCompare(b.name));
@@ -285,11 +297,6 @@ export class VulnRepository {
       if (v.cvss_score > maxCvss) maxCvss = v.cvss_score;
     }
 
-    const sortedVulns = [...vulns].sort((a, b) => {
-      if (b.cvss_score !== a.cvss_score) return b.cvss_score - a.cvss_score;
-      return b.published.localeCompare(a.published);
-    });
-
     return {
       ...vendor,
       stats: {
@@ -300,11 +307,17 @@ export class VulnRepository {
         avg_cvss: vulns.length ? round2(cvssSum / vulns.length) : 0,
         max_cvss: maxCvss,
       },
-      vulnerabilities: sortedVulns,
+      // Already in canonical order: per-vendor lists are sorted once at load.
+      vulnerabilities: vulns,
     };
   }
 
   getStatistics(): Statistics {
+    if (this.cachedStatistics === null) this.cachedStatistics = this.computeStatistics();
+    return this.cachedStatistics;
+  }
+
+  private computeStatistics(): Statistics {
     const bySeverity = emptySeverityBreakdown();
     const byStatus: Record<string, number> = {};
     let cvssSum = 0;

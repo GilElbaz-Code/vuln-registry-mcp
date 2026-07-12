@@ -147,7 +147,7 @@ describe("get_vulnerability resolution ladder", () => {
 
 describe("search_vulnerabilities tool", () => {
   it("returns everything within the default limit when called with no filters", () => {
-    const result = textOf(searchVulnerabilities(repo, { limit: 50 })) as {
+    const result = textOf(searchVulnerabilities(repo, { limit: 50, offset: 0 })) as {
       count: number;
       total_matched: number;
     };
@@ -157,13 +157,13 @@ describe("search_vulnerabilities tool", () => {
 
   it("combines severity and status filters", () => {
     const result = textOf(
-      searchVulnerabilities(repo, { severity: ["critical"], status: "open", limit: 50 }),
+      searchVulnerabilities(repo, { severity: ["critical"], status: "open", limit: 50, offset: 0 }),
     ) as { results: Array<{ id: string }> };
     expect(result.results.map((r) => r.id).sort()).toEqual(["CVE019", "CVE020"]);
   });
 
   it("respects the limit and reports total_matched separately from count", () => {
-    const result = textOf(searchVulnerabilities(repo, { severity: ["high"], limit: 2 })) as {
+    const result = textOf(searchVulnerabilities(repo, { severity: ["high"], limit: 2, offset: 0 })) as {
       count: number;
       total_matched: number;
     };
@@ -172,12 +172,35 @@ describe("search_vulnerabilities tool", () => {
   });
 
   it("sorts results by cvss_score desc", () => {
-    const result = textOf(searchVulnerabilities(repo, { limit: 200 })) as {
+    const result = textOf(searchVulnerabilities(repo, { limit: 200, offset: 0 })) as {
       results: Array<{ cvss_score: number }>;
     };
     const scores = result.results.map((r) => r.cvss_score);
     const sorted = [...scores].sort((a, b) => b - a);
     expect(scores).toEqual(sorted);
+  });
+
+  it("paginates with offset: pages are disjoint, ordered, and has_more flips on the last page", () => {
+    const page1 = textOf(searchVulnerabilities(repo, { limit: 15, offset: 0 })) as {
+      count: number;
+      has_more: boolean;
+      results: Array<{ id: string }>;
+    };
+    const page2 = textOf(searchVulnerabilities(repo, { limit: 15, offset: 15 })) as {
+      count: number;
+      has_more: boolean;
+      offset: number;
+      results: Array<{ id: string }>;
+    };
+
+    expect(page1.count).toBe(15);
+    expect(page1.has_more).toBe(true);
+    expect(page2.count).toBe(5);
+    expect(page2.has_more).toBe(false);
+    expect(page2.offset).toBe(15);
+
+    const ids = [...page1.results, ...page2.results].map((r) => r.id);
+    expect(new Set(ids).size).toBe(20);
   });
 });
 

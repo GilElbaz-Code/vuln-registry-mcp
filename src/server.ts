@@ -1,14 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { VulnRepository } from "./repository/repository.js";
+import type { Registry } from "./registry.js";
 import { registerTools } from "./tools/index.js";
 
-export function createServer(repo: VulnRepository): McpServer {
+export function createServer(registry: Registry): McpServer {
   const server = new McpServer({
     name: "vuln-registry-mcp",
     version: "0.1.0",
   });
 
-  registerTools(server, repo);
+  // Tools resolve the repository per call, so a hot reload takes effect
+  // without re-registering anything.
+  registerTools(server, () => registry.repo);
 
   return server;
 }

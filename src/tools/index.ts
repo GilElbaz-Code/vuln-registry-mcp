@@ -6,7 +6,7 @@ import { getVulnerability, getVulnerabilityShape } from "./get-vulnerability.js"
 import { listVendors, listVendorsShape } from "./list-vendors.js";
 import { searchVulnerabilities, searchVulnerabilitiesShape } from "./search-vulnerabilities.js";
 
-export function registerTools(server: McpServer, repo: VulnRepository): void {
+export function registerTools(server: McpServer, getRepo: () => VulnRepository): void {
   server.registerTool(
     "search_vulnerabilities",
     {
@@ -14,10 +14,11 @@ export function registerTools(server: McpServer, repo: VulnRepository): void {
       description:
         "Search the vulnerability registry with combinable filters (severity, status, vendor, CVSS range, " +
         "publish date range, keyword). All filters are optional and combine with AND; an empty call returns " +
-        "everything up to the limit. Results are sorted by CVSS score (desc), then publish date (desc).",
+        "everything up to the limit. Results are sorted by CVSS score (desc), then publish date (desc); " +
+        "page through large result sets with limit and offset.",
       inputSchema: searchVulnerabilitiesShape,
     },
-    async (input) => searchVulnerabilities(repo, input),
+    async (input) => searchVulnerabilities(getRepo(), input),
   );
 
   server.registerTool(
@@ -30,7 +31,7 @@ export function registerTools(server: McpServer, repo: VulnRepository): void {
         "If the identifier is ambiguous or not found, returns candidates/suggestions instead of guessing.",
       inputSchema: getVulnerabilityShape,
     },
-    async (input) => getVulnerability(repo, input),
+    async (input) => getVulnerability(getRepo(), input),
   );
 
   server.registerTool(
@@ -40,7 +41,7 @@ export function registerTools(server: McpServer, repo: VulnRepository): void {
       description: "List all registered vendors with their vulnerability count, open count, and severity breakdown.",
       inputSchema: listVendorsShape,
     },
-    async (input) => listVendors(repo, input),
+    async (input) => listVendors(getRepo(), input),
   );
 
   server.registerTool(
@@ -53,7 +54,7 @@ export function registerTools(server: McpServer, repo: VulnRepository): void {
         "average and max CVSS). Ambiguous or unmatched names return candidates/suggestions instead of guessing.",
       inputSchema: getVendorProfileShape,
     },
-    async (input) => getVendorProfile(repo, input),
+    async (input) => getVendorProfile(getRepo(), input),
   );
 
   server.registerTool(
@@ -66,6 +67,6 @@ export function registerTools(server: McpServer, repo: VulnRepository): void {
         "count. Optionally add a grouped breakdown by severity, status, or vendor.",
       inputSchema: getStatisticsShape,
     },
-    async (input) => getStatistics(repo, input),
+    async (input) => getStatistics(getRepo(), input),
   );
 }

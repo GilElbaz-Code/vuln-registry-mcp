@@ -1,5 +1,5 @@
 function write(level: string, message: string): void {
-  process.stderr.write(`[${level}] ${message}\n`);
+  process.stderr.write(`${new Date().toISOString()} [${level}] ${message}\n`);
 }
 
 export const logger = {

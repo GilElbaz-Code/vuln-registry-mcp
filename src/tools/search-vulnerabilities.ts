@@ -27,15 +27,27 @@ export const searchVulnerabilitiesShape = {
     .regex(ISO_DATE, "must be a zero-padded YYYY-MM-DD date")
     .optional()
     .describe("Only include vulnerabilities published on/before this date (YYYY-MM-DD)"),
-  limit: z.number().int().positive().max(200).default(50).describe("Maximum number of results to return"),
+  limit: z.number().int().positive().max(200).default(50).describe("Maximum number of results to return per page"),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .default(0)
+    .describe("Number of matched results to skip before the page starts (pagination)"),
 };
 
 const SearchVulnerabilitiesInput = z.object(searchVulnerabilitiesShape);
 export type SearchVulnerabilitiesInput = z.infer<typeof SearchVulnerabilitiesInput>;
 
 export function searchVulnerabilities(repo: VulnRepository, input: SearchVulnerabilitiesInput) {
-  const { limit, ...filters } = input;
+  const { limit, offset, ...filters } = input;
   const matched = repo.search(filters);
-  const results = matched.slice(0, limit);
-  return jsonResult({ count: results.length, total_matched: matched.length, results });
+  const results = matched.slice(offset, offset + limit);
+  return jsonResult({
+    count: results.length,
+    total_matched: matched.length,
+    offset,
+    has_more: offset + results.length < matched.length,
+    results,
+  });
 }
