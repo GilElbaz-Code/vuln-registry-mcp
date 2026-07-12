@@ -18,6 +18,7 @@ export function parseDbFile(text: string, sourceName: string): ParsedFile {
   let columns: string[] | null = null;
   let version: string | null = null;
   const rows: ParsedRow[] = [];
+  const rowLines: number[] = [];
   const warnings: ParseWarning[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -61,6 +62,7 @@ export function parseDbFile(text: string, sourceName: string): ParsedFile {
       row[columns[c] as string] = fields[c] as string;
     }
     rows.push(row);
+    rowLines.push(lineNumber);
   }
 
   if (columns === null) {
@@ -79,5 +81,5 @@ export function parseDbFile(text: string, sourceName: string): ParsedFile {
     });
   }
 
-  return { sourceName, version, columns, rows, warnings };
+  return { sourceName, version, columns, rows, rowLines, warnings };
 }

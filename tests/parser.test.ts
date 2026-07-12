@@ -25,6 +25,7 @@ describe("parseDbFile", () => {
       founded: "1975",
     });
     expect(result.warnings).toHaveLength(0);
+    expect(result.rowLines).toEqual([5, 6]);
   });
 
   it("is schema-agnostic: a different FORMAT header yields differently named fields with no code change", () => {
