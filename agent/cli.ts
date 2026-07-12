@@ -7,7 +7,7 @@ import type { Content, FunctionDeclaration } from "@google/genai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const MODEL = process.env["GEMINI_MODEL"] ?? "gemini-2.0-flash";
+const MODEL = process.env["GEMINI_MODEL"] ?? "gemini-flash-latest";
 const MAX_TOOL_ROUNDS = 8;
 
 function trace(message: string): void {
@@ -97,49 +97,57 @@ async function main(): Promise<void> {
   }
 
   const client = await connectToServer();
-  const declarations = await buildFunctionDeclarations(client);
-  trace(`connected — ${declarations.length} tools available: ${declarations.map((d) => d.name).join(", ")}`);
+  try {
+    const declarations = await buildFunctionDeclarations(client);
+    trace(`connected — ${declarations.length} tools available: ${declarations.map((d) => d.name).join(", ")}`);
 
-  const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey });
 
-  const positionalQuestion = process.argv.slice(2).join(" ").trim();
-  if (positionalQuestion) {
-    const answer = await ask(ai, client, declarations, positionalQuestion);
-    console.log(answer);
+    const positionalQuestion = process.argv.slice(2).join(" ").trim();
+    if (positionalQuestion) {
+      const answer = await ask(ai, client, declarations, positionalQuestion);
+      console.log(answer);
+      return;
+    }
+
+    trace('interactive mode — type a question and press enter (Ctrl+D or "exit" to quit)');
+    await runInteractive(ai, client, declarations);
+  } finally {
+    // Always close the subprocess transport before the process exits — exiting while
+    // its stdio pipes are still open crashes libuv on Windows (UV_HANDLE_CLOSING assert).
     await client.close();
-    return;
   }
+}
 
-  trace('interactive mode — type a question and press enter (Ctrl+D or "exit" to quit)');
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
-  rl.prompt();
-  rl.on("line", (line) => {
-    const question = line.trim();
-    if (!question) {
-      rl.prompt();
-      return;
-    }
-    if (question === "exit" || question === "quit") {
-      rl.close();
-      return;
-    }
-    ask(ai, client, declarations, question)
-      .then((answer) => {
-        console.log(answer);
+function runInteractive(ai: GoogleGenAI, client: Client, declarations: FunctionDeclaration[]): Promise<void> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
+    rl.prompt();
+    rl.on("line", (line) => {
+      const question = line.trim();
+      if (!question) {
         rl.prompt();
-      })
-      .catch((err) => {
-        trace(`error: ${(err as Error).message}`);
-        rl.prompt();
-      });
-  });
-  rl.on("close", async () => {
-    await client.close();
-    process.exit(0);
+        return;
+      }
+      if (question === "exit" || question === "quit") {
+        rl.close();
+        return;
+      }
+      ask(ai, client, declarations, question)
+        .then((answer) => {
+          console.log(answer);
+          rl.prompt();
+        })
+        .catch((err) => {
+          trace(`error: ${(err as Error).message}`);
+          rl.prompt();
+        });
+    });
+    rl.on("close", () => resolve());
   });
 }
 
 main().catch((err) => {
   trace(`fatal error: ${(err as Error).message}`);
-  process.exit(1);
+  process.exitCode = 1;
 });
