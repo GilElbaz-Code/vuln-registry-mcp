@@ -21,8 +21,7 @@ function emptySeverityBreakdown(): SeverityBreakdown {
 }
 
 function addToBreakdown(breakdown: SeverityBreakdown, severity: string): void {
-  const key = severity.toLowerCase();
-  breakdown[key] = (breakdown[key] ?? 0) + 1;
+  breakdown[severity] = (breakdown[severity] ?? 0) + 1;
 }
 
 function round2(n: number): number {
@@ -47,6 +46,8 @@ export class VulnRepository {
   private readonly vulnsByNormalizedTitle = new Map<string, Vulnerability>();
   private readonly vulnsByVendorId = new Map<string, Vulnerability[]>();
   private readonly allVulnsList: Vulnerability[] = [];
+  /** Lowercased titles aligned with allVulnsList, so text scans never re-lowercase per query. */
+  private readonly lowerTitles: string[] = [];
   private orphanCount = 0;
   // The dataset is immutable after load, so derived aggregates are computed once and cached.
   private cachedStatistics: Statistics | null = null;
@@ -132,10 +133,12 @@ export class VulnRepository {
         cve_id: (row["cve_id"] ?? "").toUpperCase(),
         title: row["title"] ?? "",
         vendor_id: vendorId,
-        severity: row["severity"] ?? "",
+        // Enum-ish fields are normalized once at load so every query and
+        // breakdown compares directly instead of re-lowercasing per row.
+        severity: (row["severity"] ?? "").toLowerCase(),
         cvss_score: cvssScore,
         affected_versions: row["affected_versions"] ?? "",
-        status: row["status"] ?? "",
+        status: (row["status"] ?? "").toLowerCase(),
         published: row["published"] ?? "",
       };
 
@@ -154,6 +157,7 @@ export class VulnRepository {
     // return pre-ordered slices instead of re-sorting on every query.
     repo.allVulnsList.sort(byCvssThenPublishedDesc);
     for (const list of repo.vulnsByVendorId.values()) list.sort(byCvssThenPublishedDesc);
+    for (const v of repo.allVulnsList) repo.lowerTitles.push(v.title.toLowerCase());
 
     return repo;
   }
@@ -185,7 +189,11 @@ export class VulnRepository {
 
   findVulnsByTitleContaining(substring: string): Vulnerability[] {
     const needle = substring.toLowerCase();
-    return this.allVulnsList.filter((v) => v.title.toLowerCase().includes(needle));
+    const matches: Vulnerability[] = [];
+    for (let i = 0; i < this.allVulnsList.length; i++) {
+      if (this.lowerTitles[i]!.includes(needle)) matches.push(this.allVulnsList[i]!);
+    }
+    return matches;
   }
 
   getAllVulnerabilities(): Vulnerability[] {
@@ -201,32 +209,40 @@ export class VulnRepository {
   }
 
   search(query: VulnQuery): EnrichedVulnerability[] {
+    // Normalize all query terms once, outside the scan loop. Row-side fields
+    // (severity, status, cve_id) are already normalized at load.
     const severitySet = query.severity ? new Set(query.severity.map((s) => s.toLowerCase())) : null;
-    const keyword = query.keyword?.toLowerCase();
+    const status = query.status?.toLowerCase();
+    const keywordLower = query.keyword?.toLowerCase();
+    const keywordUpper = query.keyword?.toUpperCase();
     const vendorName = query.vendor_name?.toLowerCase();
     const vendorId = query.vendor_id?.toUpperCase();
 
     // Start from the vendor index when the query pins a vendor; filter before
-    // enriching so non-matching rows never allocate an enriched copy.
+    // enriching so non-matching rows never allocate an enriched copy. Cheap
+    // checks (set/equality/numeric) run before substring scans.
     const pool = vendorId !== undefined ? this.vulnsByVendorId.get(vendorId) ?? [] : this.allVulnsList;
+    const poolIsFullList = pool === this.allVulnsList;
 
-    const results = pool.filter((v) => {
-      if (severitySet && !severitySet.has(v.severity.toLowerCase())) return false;
-      if (query.status && v.status.toLowerCase() !== query.status.toLowerCase()) return false;
-      if (vendorName) {
+    const results: EnrichedVulnerability[] = [];
+    for (let i = 0; i < pool.length; i++) {
+      const v = pool[i]!;
+      if (severitySet && !severitySet.has(v.severity)) continue;
+      if (status !== undefined && v.status !== status) continue;
+      if (query.min_cvss !== undefined && v.cvss_score < query.min_cvss) continue;
+      if (query.max_cvss !== undefined && v.cvss_score > query.max_cvss) continue;
+      if (query.published_after && v.published < query.published_after) continue;
+      if (query.published_before && v.published > query.published_before) continue;
+      if (vendorName !== undefined) {
         const vendor = this.vendorsById.get(v.vendor_id);
-        if (!vendor || !vendor.name.toLowerCase().includes(vendorName)) return false;
+        if (!vendor || !vendor.name.toLowerCase().includes(vendorName)) continue;
       }
-      if (keyword) {
-        const haystack = `${v.title} ${v.cve_id}`.toLowerCase();
-        if (!haystack.includes(keyword)) return false;
+      if (keywordLower !== undefined) {
+        const titleLower = poolIsFullList ? this.lowerTitles[i]! : v.title.toLowerCase();
+        if (!titleLower.includes(keywordLower) && !v.cve_id.includes(keywordUpper!)) continue;
       }
-      if (query.min_cvss !== undefined && v.cvss_score < query.min_cvss) return false;
-      if (query.max_cvss !== undefined && v.cvss_score > query.max_cvss) return false;
-      if (query.published_after && v.published < query.published_after) return false;
-      if (query.published_before && v.published > query.published_before) return false;
-      return true;
-    }).map((v) => this.enrich(v));
+      results.push(this.enrich(v));
+    }
 
     // Already in canonical order: the source lists are sorted once at load.
     return results;
@@ -240,7 +256,7 @@ export class VulnRepository {
         let openCount = 0;
         for (const v of vulns) {
           addToBreakdown(breakdown, v.severity);
-          if (v.status.toLowerCase() === "open") openCount++;
+          if (v.status === "open") openCount++;
         }
         return { ...vendor, vuln_count: vulns.length, open_count: openCount, severity_breakdown: breakdown };
       });
@@ -291,7 +307,7 @@ export class VulnRepository {
     let maxCvss = 0;
     for (const v of vulns) {
       addToBreakdown(bySeverity, v.severity);
-      if (v.status.toLowerCase() === "open") open++;
+      if (v.status === "open") open++;
       else patched++;
       cvssSum += v.cvss_score;
       if (v.cvss_score > maxCvss) maxCvss = v.cvss_score;
@@ -321,25 +337,25 @@ export class VulnRepository {
     const bySeverity = emptySeverityBreakdown();
     const byStatus: Record<string, number> = {};
     let cvssSum = 0;
-    let highest: EnrichedVulnerability | null = null;
     let earliest: string | null = null;
     let latest: string | null = null;
     let openCritical = 0;
 
     for (const v of this.allVulnsList) {
       addToBreakdown(bySeverity, v.severity);
-      const statusKey = v.status.toLowerCase();
-      byStatus[statusKey] = (byStatus[statusKey] ?? 0) + 1;
+      byStatus[v.status] = (byStatus[v.status] ?? 0) + 1;
       cvssSum += v.cvss_score;
-      if (v.severity.toLowerCase() === "critical" && statusKey === "open") openCritical++;
-
-      if (!highest || v.cvss_score > highest.cvss_score) highest = this.enrich(v);
+      if (v.severity === "critical" && v.status === "open") openCritical++;
 
       if (v.published) {
         if (earliest === null || v.published < earliest) earliest = v.published;
         if (latest === null || v.published > latest) latest = v.published;
       }
     }
+
+    // The list is sorted by CVSS descending at load, so the top scorer is index 0.
+    const first = this.allVulnsList[0];
+    const highest = first ? this.enrich(first) : null;
 
     return {
       total_vulnerabilities: this.allVulnsList.length,

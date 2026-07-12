@@ -14,20 +14,21 @@ function tokenize(text: string): string[] {
   return text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
-function tokenOverlapScore(query: string, candidate: string): number {
-  const queryTokens = new Set(tokenize(query));
-  if (queryTokens.size === 0) return 0;
-  let overlap = 0;
-  for (const token of tokenize(candidate)) {
-    if (queryTokens.has(token)) overlap++;
-  }
-  return overlap;
-}
-
 function topSuggestions<T>(query: string, items: T[], getText: (item: T) => string, limit = 3): T[] {
-  return items
-    .map((item) => ({ item, score: tokenOverlapScore(query, getText(item)) }))
-    .filter((s) => s.score > 0)
+  // Tokenize the query once; only candidates are tokenized inside the scan.
+  const queryTokens = new Set(tokenize(query));
+  if (queryTokens.size === 0) return [];
+
+  const scored: Array<{ item: T; score: number }> = [];
+  for (const item of items) {
+    let overlap = 0;
+    for (const token of tokenize(getText(item))) {
+      if (queryTokens.has(token)) overlap++;
+    }
+    if (overlap > 0) scored.push({ item, score: overlap });
+  }
+
+  return scored
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((s) => s.item);

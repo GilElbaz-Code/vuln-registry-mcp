@@ -154,6 +154,19 @@ VULN|CVE002|CVE-2017-0144|EternalBlue|V1|critical|9.8|Windows 7-2008 R2|patched|
     const repo = buildRepo(VENDORS, VULNS);
     expect(repo.getVulnById("CVE002")?.affected_versions).toBe("Windows 7-2008 R2");
   });
+
+  it("normalizes severity/status casing at load so filters and breakdowns stay consistent", () => {
+    const mixedCase = `# FORMAT: type|id|cve_id|title|vendor_id|severity|cvss_score|affected_versions|status|published
+# VERSION: 1.0
+
+VULN|CVE001|CVE-2020-0001|Shouty Row|V1|CRITICAL|9.0|n/a|Open|2020-01-01
+`;
+    const repo = buildRepo(VENDORS, mixedCase);
+    expect(repo.getVulnById("CVE001")?.severity).toBe("critical");
+    expect(repo.getVulnById("CVE001")?.status).toBe("open");
+    expect(repo.search({ severity: ["critical"], status: "open" })).toHaveLength(1);
+    expect(repo.getStatistics().by_severity["critical"]).toBe(1);
+  });
 });
 
 describe("VulnRepository — search filters", () => {

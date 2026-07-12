@@ -239,20 +239,25 @@ paths:
 
 | operation (100k rows)                              | time     |
 |----------------------------------------------------|----------|
-| parse both files + build indexes + load-time sort  | ~530 ms (startup, once) |
-| point lookup by id / CVE id / title (Map)          | ~0.0004 ms each (10k in 4.3 ms) |
-| search seeded by `vendor_id` (index)               | ~0.1 ms  |
-| worst-case full-scan search (severity + status)    | ~86 ms   |
-| `get_statistics` / `list_vendors`                  | ~87 / 29 ms first call, ~0 ms cached |
-| resident heap after load                           | ~91 MB   |
+| parse both files + build indexes + load-time sort  | ~600 ms (startup, once) |
+| point lookup by id / CVE id / title (Map)          | ~0.0005 ms each (10k in ~5 ms) |
+| search seeded by `vendor_id` (index)               | ~0.3 ms  |
+| worst-case full-scan search (severity + status)    | ~29 ms   |
+| full-scan keyword search                           | ~37 ms   |
+| `get_statistics` / `list_vendors`                  | ~46 / 14 ms first call, ~0 ms cached |
+| resident heap after load                           | ~140 MB  |
 
 The properties that make this hold as the data grows:
 
 - **Immutable-after-load dataset → precompute, don't recompute.** Rows are
   sorted into the canonical order (CVSS desc, published desc) once at load;
-  queries return pre-ordered slices instead of sorting per call. Registry-wide
-  statistics and vendor counts are computed on first use and cached — a hot
-  reload builds a fresh repository, so caches can never go stale.
+  queries return pre-ordered slices instead of sorting per call. Enum-ish
+  fields (`severity`, `status`) and search text are normalized once at load,
+  so scans compare directly instead of allocating lowercased strings per row
+  per query — a deliberate memory-for-latency trade in a read-heavy server.
+  Registry-wide statistics and vendor counts are computed on first use and
+  cached — a hot reload builds a fresh repository, so caches can never go
+  stale.
 - **Maps for every point lookup** (id, CVE id, normalized title, vendor_id);
   only free-text search scans, and a vendor-scoped search starts from the
   vendor index rather than the full list.
