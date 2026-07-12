@@ -183,16 +183,29 @@ server as a real subprocess over stdio, lists its tools, and drives a
 [Gemini](https://ai.google.dev/) function-calling loop on top of them —
 proving the server works with a real MCP client, not just Claude Desktop.
 
+Get a free key from [Google AI Studio](https://aistudio.google.com/apikey),
+then either `export GEMINI_API_KEY=...` or copy `.env.example` to `.env` and
+fill it in — `npm run agent` loads `.env` automatically via Node's native
+`--env-file-if-exists` flag (no extra dependency needed). `.env` is
+gitignored; only the empty `.env.example` template is committed.
+
 ```bash
-export GEMINI_API_KEY=your-key-here
+cp .env.example .env   # then edit .env to add your key
 npm run agent -- "How many critical vulnerabilities are still open?"
 ```
 
-Without `npm run agent -- "question"` (a positional arg), it starts an
-interactive stdin loop instead. Tool-call tracing goes to stderr; the final
-answer is the only thing printed to stdout. If `GEMINI_API_KEY` isn't set,
-the agent exits with a clear message — the MCP server and Claude Desktop
-path work fully without it.
+Without a positional question arg, it starts an interactive stdin loop
+instead. Tool-call tracing goes to stderr; the final answer is the only
+thing printed to stdout. If `GEMINI_API_KEY` isn't set, the agent exits with
+a clear message — the MCP server and Claude Desktop path work fully without
+it. Model defaults to `gemini-flash-latest` (override with `GEMINI_MODEL`);
+some free-tier keys return a hard quota error on pinned versions like
+`gemini-2.0-flash`, so the alias is the safer default.
+
+Verified end-to-end with a real key, including multi-hop questions that
+chain tool calls (e.g. "What is the CVSS score of Log4Shell, and who is the
+vendor?" → `get_vulnerability` → answer synthesized from the vendor join
+already embedded in its response).
 
 ## Design decisions
 
