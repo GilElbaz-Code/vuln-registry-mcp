@@ -44,6 +44,12 @@ describe("Zod input validation", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects an empty severity array (would silently match nothing) for search_vulnerabilities", () => {
+    const schema = z.object(searchVulnerabilitiesShape);
+    expect(schema.safeParse({ severity: [] }).success).toBe(false);
+    expect(schema.safeParse({ severity: ["critical"] }).success).toBe(true);
+  });
+
   it("rejects an empty identifier for get_vulnerability", () => {
     const schema = z.object(getVulnerabilityShape);
     expect(schema.safeParse({ identifier: "" }).success).toBe(false);

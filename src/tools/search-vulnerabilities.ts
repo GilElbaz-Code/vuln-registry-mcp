@@ -9,6 +9,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const searchVulnerabilitiesShape = {
   severity: z
     .array(z.enum(["critical", "high", "medium", "low"]))
+    .min(1, "provide at least one severity, or omit the filter entirely")
     .optional()
     .describe("Only include vulnerabilities with one of these severities"),
   status: z.enum(["open", "patched"]).optional().describe("Only include vulnerabilities with this patch status"),

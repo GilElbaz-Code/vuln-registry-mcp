@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.check.json",
     "bench": "tsx scripts/bench.ts",
     "test:watch": "vitest",
-    "agent": "tsx --env-file-if-exists=.env agent/cli.ts"
+    "agent": "tsx agent/cli.ts"
   },
   "engines": {
     "node": ">=20"

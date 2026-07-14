@@ -7,6 +7,17 @@ import type { Content, FunctionDeclaration } from "@google/genai";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+
+// Load .env from the project root if present. Done here rather than via the
+// node --env-file-if-exists flag, which requires Node >= 22.9 while this
+// project supports Node 20+. Already-set environment variables win.
+try {
+  process.loadEnvFile(path.resolve(moduleDir, "..", ".env"));
+} catch {
+  // no .env file — rely on the ambient environment
+}
+
 const MODEL = process.env["GEMINI_MODEL"] ?? "gemini-flash-latest";
 const MAX_TOOL_ROUNDS = 8;
 
@@ -15,7 +26,6 @@ function trace(message: string): void {
 }
 
 async function connectToServer(): Promise<Client> {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
   const serverEntry = path.resolve(moduleDir, "..", "dist", "index.js");
 
   if (!fs.existsSync(serverEntry)) {

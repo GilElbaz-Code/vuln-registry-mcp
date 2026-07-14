@@ -207,9 +207,9 @@ proving the server works with a real MCP client, not just Claude Desktop.
 
 Get a free key from [Google AI Studio](https://aistudio.google.com/apikey),
 then either `export GEMINI_API_KEY=...` or copy `.env.example` to `.env` and
-fill it in — `npm run agent` loads `.env` automatically via Node's native
-`--env-file-if-exists` flag (no extra dependency needed). `.env` is
-gitignored; only the empty `.env.example` template is committed.
+fill it in — the agent loads `.env` automatically via Node's native
+`process.loadEnvFile` (no extra dependency needed, works on Node 20+).
+`.env` is gitignored; only the empty `.env.example` template is committed.
 
 ```bash
 cp .env.example .env   # then edit .env to add your key
@@ -239,12 +239,12 @@ paths:
 
 | operation (100k rows)                              | time     |
 |----------------------------------------------------|----------|
-| parse both files + build indexes + load-time sort  | ~600 ms (startup, once) |
-| point lookup by id / CVE id / title (Map)          | ~0.0005 ms each (10k in ~5 ms) |
-| search seeded by `vendor_id` (index)               | ~0.3 ms  |
-| worst-case full-scan search (severity + status)    | ~29 ms   |
-| full-scan keyword search                           | ~37 ms   |
-| `get_statistics` / `list_vendors`                  | ~46 / 14 ms first call, ~0 ms cached |
+| parse both files + build indexes + load-time sort  | ~1.6 s (startup, once) |
+| point lookup by id / CVE id / title (Map)          | ~0.002 ms each (10k in ~16 ms) |
+| search seeded by `vendor_id` (index)               | ~0.5 ms  |
+| worst-case full-scan search (severity + status)    | ~70–90 ms |
+| full-scan keyword search                           | ~70–90 ms |
+| `get_statistics` / `list_vendors`                  | ~100 / 35 ms first call, ~0 ms cached |
 | resident heap after load                           | ~140 MB  |
 
 The properties that make this hold as the data grows:
