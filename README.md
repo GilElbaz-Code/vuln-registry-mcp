@@ -18,10 +18,6 @@ npm run typecheck  # strict tsc over src/, tests/, agent/, and scripts/ (no emit
 npm run bench      # synthetic 100k-row load/query benchmark
 ```
 
-CI (GitHub Actions) runs typecheck, build, and the test suite on Node 20
-and 22 on every push/PR, plus a guard that fails the build if anything in
-`src/` writes to stdout.
-
 Run the server directly (over stdio) for local testing:
 
 ```bash
@@ -264,6 +260,18 @@ The properties that make this hold as the data grows:
 - **Pagination** (`limit`/`offset` + `has_more`) keeps individual MCP
   responses bounded no matter how large the registry gets — important because
   the consumer is an LLM with a finite context window.
+
+**Where this design tops out.** Extrapolating the measured numbers linearly:
+~1 million rows means roughly 15 s of startup, ~1.4 GB of heap, and
+~0.7–0.9 s for a worst-case full-scan search — workable for an internal
+analyst tool, but at the edge. Beyond that, in-memory JS objects stop being
+the right tool: the next step is an embedded database (SQLite via
+`node:sqlite` or `better-sqlite3`, with proper indexes and FTS5 for keyword
+search) loaded from the same pipe-delimited files at startup — same
+zero-infrastructure deployment, but indexed scans and no per-row object
+overhead. The in-memory design was chosen deliberately for the assignment's
+stated scale ("thousands of records"), where it beats an embedded DB on
+simplicity, latency, and dependency count.
 
 ## Design decisions
 
