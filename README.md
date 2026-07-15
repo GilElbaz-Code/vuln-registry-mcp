@@ -315,6 +315,12 @@ simplicity, latency, and dependency count.
   this is enforced structurally rather than by convention, since anything on
   stdout would corrupt the MCP transport.
 
+## Development notes
+
+Built with AI assistance (Claude Code). I directed the architecture and
+requirements, reviewed every change, and made the design calls documented
+above — the repo history and `CLAUDE.md` reflect that workflow transparently.
+
 ## What I'd build differently with more time
 
 - Real version-range reasoning for `affected_versions` (e.g. "is 5.3.2
